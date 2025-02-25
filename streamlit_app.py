@@ -1,26 +1,28 @@
 import streamlit as st
 import google.generativeai as genai
 import requests
-import json
-import supabase
-from io import StringIO
-from PyPDF2 import PdfReader
+import time
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+import langid
+from collections import Counter
+
+# Download necessary corpora for NLTK
+nltk.download('vader_lexicon')
 
 # Configure the API keys securely using Streamlit's secrets
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# Initialize Supabase connection
-supabase_url = st.secrets["SUPABASE_URL"]
-supabase_key = st.secrets["SUPABASE_API_KEY"]
-supabase_client = supabase.create_client(supabase_url, supabase_key)
-
 # App Title and Description
-st.title("AI-Powered Legal Assistant")
-st.write("Search, summarize, and analyze legal content powered by Google Search, Gemini AI, and Supabase.")
+st.title("AI-Powered Ghostwriter & Audio Transcription")
+st.write("Generate creative content and ensure its originality, step by step.")
+st.write("Additionally, transcribe and analyze audio files for insights.")
 
-# Step 1: Enter Search Query
-st.subheader("Step 1: Enter your legal query or document reference")
-query = st.text_input("What would you like to search or analyze?", placeholder="e.g., 'Intellectual Property Law'")
+# Step 1: Input Prompt
+st.subheader("Step 1: Enter your content idea")
+prompt = st.text_input("What would you like to write about?", placeholder="e.g. AI trends in 2025")
 
 # Function to handle web search
 def search_web(query):
@@ -38,116 +40,184 @@ def search_web(query):
         st.error(f"Search API Error: {response.status_code} - {response.text}")
         return []
 
-# Function to summarize content using Gemini AI
-def summarize_text(text):
-    """Generates a summary of the legal text using Gemini AI."""
+# Function to regenerate content for originality
+def regenerate_content(original_content):
+    """Generates rewritten content based on the original content to ensure originality."""
     model = genai.GenerativeModel('gemini-1.5-flash')
-    prompt = f"Please summarize the following legal text for clarity and understanding:\n\n{text}"
+    prompt = f"Rewrite the following content to make it original and distinct:\n\n{original_content}"
     response = model.generate_content(prompt)
     return response.text.strip()
 
-# Function to extract documents from Supabase Storage
-def fetch_legal_documents():
-    """Fetches legal documents from Supabase storage."""
-    storage = supabase_client.storage()
-    documents = storage.from_("legal_documents").list()
-    return [doc['name'] for doc in documents]
+# Function to transcribe audio
+def transcribe_audio(file):
+    """Transcribes the audio using the Hugging Face API."""
+    API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo"
+    API_TOKEN = st.secrets["HUGGINGFACE_API_TOKEN"]
+    HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
+    try:
+        data = file.read()
+        response = requests.post(API_URL, headers=HEADERS, data=data)
+        if response.status_code == 200:
+            return response.json()  # Return transcription
+        else:
+            return {"error": f"API Error: {response.status_code} - {response.text}"}
+    except Exception as e:
+        return {"error": str(e)}
 
-# Function to process selected document from Supabase
-def get_legal_document(doc_name):
-    """Retrieve the content of a selected legal document."""
-    storage = supabase_client.storage()
-    file = storage.from_("legal_documents").download(doc_name)
-    file_content = file.decode("utf-8")  # Assuming the document is in text format
-    return file_content
+# Enhanced sentiment analysis with VADER
+def analyze_vader_sentiment(text):
+    sia = SentimentIntensityAnalyzer()
+    sentiment = sia.polarity_scores(text)
+    return sentiment
 
-# Function to extract text from PDF (if applicable)
-def extract_text_from_pdf(pdf_file):
-    """Extract text from PDF using PyPDF2"""
-    reader = PdfReader(pdf_file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
+# Function for keyword extraction using CountVectorizer
+def extract_keywords(text):
+    from sklearn.feature_extraction.text import CountVectorizer
+    vectorizer = CountVectorizer(stop_words='english', max_features=10)  # Extract top 10 frequent words
+    X = vectorizer.fit_transform([text])
+    keywords = vectorizer.get_feature_names_out()
+    return keywords
 
-# Function to limit text input to a manageable size
-def limit_text_for_ai(text, max_length=1000):
-    """Limits text to the specified number of characters."""
-    if len(text) > max_length:
-        return text[:max_length]  # Truncate to max_length
-    return text
+# Function to calculate word frequency
+def word_frequency(text):
+    words = text.split()
+    word_counts = Counter(words)
+    most_common_words = word_counts.most_common(20)
+    return most_common_words
 
-# Step 2: Button to perform a legal search
-if query.strip():
-    if st.button("Search Legal Information"):
-        with st.spinner("Searching the web for related legal content... Please wait!"):
+# Function to generate a word cloud
+def generate_word_cloud(text):
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
+    return wordcloud
+
+# Detect language of the text
+def detect_language(text):
+    lang, confidence = langid.classify(text)
+    return lang, confidence
+
+# Step 2: Content Generation and Search for Similarity
+if prompt.strip():
+    if st.button("Generate Content"):
+        with st.spinner("Generating content... Please wait!"):
             try:
-                search_results = search_web(query)
-                
+                # Generate content using Generative AI
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(prompt)
+                generated_text = response.text.strip()
+
+                # Display the generated content with feedback
+                st.subheader("Step 2: Your Generated Content")
+                st.write(generated_text)
+
+                # Check for similar content online (Step 3)
+                st.subheader("Step 3: Searching for Similar Content Online")
+                search_results = search_web(generated_text)
+
                 if search_results:
-                    st.subheader("Step 3: Legal Information Found Online")
+                    st.warning("We found similar content on the web:")
+
+                    # Display results in a compact, user-friendly format
                     for result in search_results[:3]:  # Show only the top 3 results
                         with st.expander(result['title']):
                             st.write(f"**Source:** [{result['link']}]({result['link']})")
                             st.write(f"**Snippet:** {result['snippet'][:150]}...")  # Shortened snippet
                             st.write("---")
 
+                    # Option to regenerate content for originality
+                    regenerate_button = st.button("Regenerate Content for Originality")
+                    if regenerate_button:
+                        with st.spinner("Regenerating content..."):
+                            regenerated_text = regenerate_content(generated_text)
+                            st.session_state.generated_text = regenerated_text
+                            st.success("Content successfully regenerated for originality.")
+                            st.subheader("Regenerated Content:")
+                            st.write(regenerated_text)
+
                 else:
-                    st.success("No results found for your query. Consider uploading legal documents for analysis.")
+                    st.success("Your content appears to be original. No similar content found online.")
 
             except Exception as e:
-                st.error(f"Error performing search: {e}")
-
-# Step 3: Upload Legal Document for Summarization or Analysis
-st.subheader("Step 4: Upload Legal Document (PDF or Text)")
-uploaded_file = st.file_uploader("Upload a legal document (e.g., law acts, contracts, etc.)", type=["txt", "pdf"])
-
-if uploaded_file is not None:
-    # Handle PDF files by extracting text
-    if uploaded_file.type == "application/pdf":
-        document_content = extract_text_from_pdf(uploaded_file)
-    else:
-        # Handle plain text files
-        document_content = uploaded_file.getvalue().decode("utf-8")
-
-    # Limit the content to the first 1,000 characters for processing
-    document_content = limit_text_for_ai(document_content)
-
-    # Show the content of the uploaded document for review
-    st.subheader("Uploaded Document Preview")
-    st.write(document_content[:500] + " ...")  # Preview first 500 characters
-
-    # Summarize document using Gemini AI
-    if st.button("Summarize Document"):
-        with st.spinner("Summarizing the document... Please wait!"):
-            try:
-                summary = summarize_text(document_content)
-                st.subheader("Document Summary")
-                st.write(summary)
-            except Exception as e:
-                st.error(f"Error summarizing document: {e}")
-
-# Step 4: View Stored Legal Documents from Supabase
-st.subheader("Step 5: View Stored Legal Documents")
-documents = fetch_legal_documents()
-
-if documents:
-    selected_doc = st.selectbox("Select a legal document to view", documents)
-    if selected_doc:
-        doc_content = get_legal_document(selected_doc)
-        st.subheader(f"Content of {selected_doc}")
-        st.write(doc_content[:500] + " ...")  # Preview first 500 characters
-        
-        # Option to summarize the document
-        if st.button(f"Summarize {selected_doc}"):
-            summary = summarize_text(doc_content)
-            st.subheader(f"Summary of {selected_doc}")
-            st.write(summary)
-
+                st.error(f"Error generating content: {e}")
 else:
-    st.write("No legal documents found in the Supabase storage. Please upload some.")
+    st.info("Enter your idea in the text box above to start.")
 
 # Option to clear the input and reset the app
-if st.button("Clear All Input"):
-    st.session_state.clear()  # Reset the app state
-    st.experimental_rerun()  # Reload the app state
+if st.button("Clear Input"):
+    st.session_state.generated_text = ""
+    st.experimental_rerun()  # Reset the app state
+
+# Audio Transcription and Analysis Section
+st.subheader("Audio Transcription & Analysis")
+
+# File uploader
+uploaded_file = st.file_uploader("Upload your audio file (e.g., .wav, .flac, .mp3)", type=["wav", "flac", "mp3"])
+
+if uploaded_file is not None:
+    # Display uploaded audio
+    st.audio(uploaded_file, format="audio/mp3", start_time=0)
+    st.info("Transcribing audio... Please wait.")
+    
+    # Transcribe the uploaded audio file
+    result = transcribe_audio(uploaded_file)
+    
+    # Display the result
+    if "text" in result:
+        st.success("Transcription Complete:")
+        transcription_text = result["text"]
+        st.write(transcription_text)
+        
+        # Sentiment Analysis (VADER)
+        vader_sentiment = analyze_vader_sentiment(transcription_text)
+        st.subheader("Sentiment Analysis (VADER)")
+        st.write(f"Positive: {vader_sentiment['pos']}, Neutral: {vader_sentiment['neu']}, Negative: {vader_sentiment['neg']}")
+
+        # Language Detection
+        lang, confidence = detect_language(transcription_text)
+        st.subheader("Language Detection")
+        st.write(f"Detected Language: {lang}, Confidence: {confidence}")
+
+        # Keyword Extraction
+        keywords = extract_keywords(transcription_text)
+        st.subheader("Keyword Extraction")
+        st.write(keywords)
+
+        # Word Frequency Analysis
+        word_freq = word_frequency(transcription_text)
+        st.subheader("Word Frequency Analysis")
+        st.write(word_freq)
+
+        # Word Cloud Visualization
+        wordcloud = generate_word_cloud(transcription_text)
+        st.subheader("Word Cloud")
+        st.image(wordcloud.to_array())
+
+        # Add download button for the transcription text
+        st.download_button(
+            label="Download Transcription",
+            data=transcription_text,
+            file_name="transcription.txt",
+            mime="text/plain"
+        )
+        
+        # Add download button for analysis results
+        analysis_results = f"""
+        Sentiment Analysis (VADER):
+        Positive: {vader_sentiment['pos']}, Neutral: {vader_sentiment['neu']}, Negative: {vader_sentiment['neg']}
+        
+        Language Detection:
+        Detected Language: {lang}, Confidence: {confidence}
+        
+        Keyword Extraction:
+        {keywords}
+        """
+        st.download_button(
+            label="Download Analysis Results",
+            data=analysis_results,
+            file_name="analysis_results.txt",
+            mime="text/plain"
+        )
+
+    elif "error" in result:
+        st.error(f"Error: {result['error']}")
+    else:
+        st.warning("Unexpected response from the API.")
