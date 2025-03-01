@@ -8,6 +8,8 @@ import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
 import langid
 from collections import Counter
+from gtts import gTTS
+import os
 
 # Download necessary corpora for NLTK
 nltk.download('vader_lexicon')
@@ -95,6 +97,12 @@ def detect_language(text):
     lang, confidence = langid.classify(text)
     return lang, confidence
 
+# Function to convert text to speech using gTTS
+def text_to_speech(text, lang='en'):
+    tts = gTTS(text=text, lang=lang)
+    tts.save("output.mp3")
+    return "output.mp3"
+
 # Step 2: Content Generation and Search for Similarity
 if prompt.strip():
     if st.button("Generate Content"):
@@ -108,6 +116,10 @@ if prompt.strip():
                 # Display the generated content with feedback
                 st.subheader("Step 2: Your Generated Content")
                 st.write(generated_text)
+
+                # TTS for generated content
+                audio_file = text_to_speech(generated_text)
+                st.audio(audio_file, format="audio/mp3")
 
                 # Check for similar content online (Step 3)
                 st.subheader("Step 3: Searching for Similar Content Online")
@@ -133,6 +145,9 @@ if prompt.strip():
                             st.subheader("Regenerated Content:")
                             st.write(regenerated_text)
 
+                            # TTS for regenerated content
+                            audio_file = text_to_speech(regenerated_text)
+                            st.audio(audio_file, format="audio/mp3")
                 else:
                     st.success("Your content appears to be original. No similar content found online.")
 
@@ -166,6 +181,10 @@ if uploaded_file is not None:
         transcription_text = result["text"]
         st.write(transcription_text)
         
+        # TTS for transcription
+        audio_file = text_to_speech(transcription_text)
+        st.audio(audio_file, format="audio/mp3")
+
         # Sentiment Analysis (VADER)
         vader_sentiment = analyze_vader_sentiment(transcription_text)
         st.subheader("Sentiment Analysis (VADER)")
