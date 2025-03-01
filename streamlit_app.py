@@ -22,6 +22,18 @@ st.title("AI-Powered Ghostwriter & Audio Transcription")
 st.write("Generate creative content and ensure its originality, step by step.")
 st.write("Additionally, transcribe and analyze audio files for insights.")
 
+# Add custom CSS to hide the header and the top-right buttons
+hide_streamlit_style = """
+    <style>
+        .css-1r6p8d1 {display: none;} /* Hides the Streamlit logo in the top left */
+        .css-1v3t3fg {display: none;} /* Hides the star button */
+        .css-1r6p8d1 .st-ae {display: none;} /* Hides the Streamlit logo */
+        header {visibility: hidden;} /* Hides the header */
+        .css-1tqja98 {visibility: hidden;} /* Hides the header bar */
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # Step 1: Input Prompt
 st.subheader("Step 1: Enter your content idea")
 prompt = st.text_input("What would you like to write about?", placeholder="e.g. AI trends in 2025")
