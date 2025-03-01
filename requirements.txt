@@ -7,5 +7,4 @@ wordcloud
 nltk
 langid
 google-generativeai
-streamlit-webrtc
-av
+gtts
